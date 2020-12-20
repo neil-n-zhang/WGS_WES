@@ -1,0 +1,17 @@
+#1 比对
+time /Tools/common/bin/bwa mem -t 4 -R '@RG\tID:foo\tPL:illumina\tSM:E.coli_K12' /Project/201802_wgs_practice/input/E.coli/fasta/E.coli_K12_MG1655.fa /Project/201802_wgs_practice/input/E.coli/fastq/SRR1770413_1.fastq.gz /Project/201802_wgs_practice/input/E.coli/fastq/SRR1770413_2.fastq.gz | /Tools/common/bin/samtools view -Sb - > /Project/201802_wgs_practice/output/E.coli/E_coli_K12.bam && echo "** bwa mapping done **"
+
+#2 排序
+time /Tools/common/bin/samtools sort -@ 4 -m 4G -O bam -o /Project/201802_wgs_practice/output/E.coli/E_coli_K12.sorted.bam /Project/201802_wgs_practice/output/E.coli/E_coli_K12.bam && echo "** BAM sort done"
+
+rm -f /Project/201802_wgs_practice/output/E.coli/E_coli_K12.bam
+
+#3 标记PCR重复
+time /Tools/common/bin/gatk/4.0.1.2/gatk MarkDuplicates -I /Project/201802_wgs_practice/output/E.coli/E_coli_K12.sorted.bam -O /Project/201802_wgs_practice/output/E.coli/E_coli_K12.sorted.markdup.bam -M /Project/201802_wgs_practice/output/E.coli/E_coli_K12.sorted.markdup_metrics.txt && echo "** markdup done **"
+
+#4 删除不必要文件(可选)
+rm -f /Project/201802_wgs_practice/output/E.coli/E_coli_K12.bam
+rm -f /Project/201802_wgs_practice/output/E.coli/E_coli_K12.sorted.bam
+
+#5 创建比对索引文件
+time /Tools/common/bin/samtools index /Project/201802_wgs_practice/output/E.coli/E_coli_K12.sorted.markdup.bam && echo "** index done **"

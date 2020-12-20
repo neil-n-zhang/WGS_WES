@@ -1,0 +1,72 @@
+﻿Variants calling using E.coli K12
+
+1. Download the reference genome from NCBI:
+$ wget ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_genomic.fna.gz
+
+2. Decompress the file:
+$ gzip -dc GCF_000005845.2_ASM584v2_genomic.fna.gz > E.coli_K12_MG1655.fa
+
+3. Build index for the genome using samtools:
+$ ~/samtools/bin/samtools faidx E.coli_K12_MG1655.fa
+E.coli_K12_MG1655.fa.fai will be generated
+
+4. Download one of the E.coli K12 sequencing result from NCBI SRA:
+$ wget ftp://ftp-trace.ncbi.nlm.nih.gov/sra/sra-instant/reads/ByRun/sra/SRR/SRR177/SRR1770413/SRR1770413.sra
+
+5. Convert the sra file into fastq:
+$ ~/Tools/sratoolkit.2.10.5-ubuntu64/bin/fastq-dump --split-files SRR1770413
+
+6. Compress the fastq using bgzip:
+$ ~/Tools/htslib-1.1.2/bin/bgzip -f SRR1770413_1.fastq
+$ ~/Tools/htslib-1.1.2/bin/bgzip -f SRR1770413_2.fastq
+
+7. Quality control using FastQC:
+$ ~/Tools/FastQC/fastqc ~/NGS/Ecoli/raw_data/fastq/*.fastq.gz -o ~/NGS/Ecoli/result/fastqc/
+
+8. Trim the low quality parts of reads using Trimmomatic
+$ java -jar ~/Tools/Trimmomatic-0.39/trimmomatic-0.39.jar PE -phred33 -trimlog logfile SRR1770413_1.fastq.gz SRR1770413_2.fastq.gz SRR1770413_trimmed_1.fastq.gz SRR1770413_removed_1.fastq.gz SRR1770413_trimmed_2.fastq.gz SRR1770413_removed_2.fastq.gz ILLUMINACLIP:~/Tools/Trimmomatic-0.39/adapters/TruSeq3-PE.fa:2:30:10 SLIDINGWINDOW:5:20 LEADING:5 TRAILING:5 MINLEN:50
+
+9. Reads mapping using BWA
+9.1 Build BWA index for the reference genome:
+$ bwa index E.coli_K12_MG1655.fa
+
+9.2 Reads alignment and save the result into BAM
+time bwa mem -t 4 -R '@RG\tID:foo\tPL:illumina\tSM:E.coli_K12' ~/NGS/Ecoli/raw_data/reference_genome/E.coli_K12_MG1655.fa ~/NGS/Ecoli/raw_data/fastq_qc_trimmed/SRR1770413_trimmed_1.fastq.gz ~/NGS/Ecoli/raw_data/fastq_qc_trimmed/SRR1770413_trimmed_2.fastq.gz | ~/samtools/bin/samtools view -Sb - > ~/NGS/Ecoli/result/BWA/E_coli_K12.bam && echo "** bwa mapping done **"
+
+9.3 Sort the BAM file
+time ~/samtools/bin/samtools sort -@ 8 -m 10G -O bam -o ~/NGS/Ecoli/result/BWA/E_coli_K12_sorted.bam ~/NGS/Ecoli/result/BWA/E_coli_K12.bam && echo "** BAM sort done"
+
+9.4 Mark PCR duplicates
+time ~/Tools/gatk-4.1.6.0/gatk MarkDuplicates -I ~/NGS/Ecoli/result/BWA/E_coli_K12_sorted.bam -O ~/NGS/Ecoli/result/BWA/E_coli_K12.sorted.markdup.bam -M ~/NGS/Ecoli/result/BWA/E_coli_K12.sorted.markdup_metrics.txt && echo "** markdup done **"
+
+9.5 Make reference for the BAM
+time ~/samtools/bin/samtools index ~/NGS/Ecoli/result/BWA/E_coli_K12.sorted.markdup.bam && echo "** index done **"
+
+10. Variant calling using GATK
+10.1 Build dictionary for the reference genome
+$ ~/Tools/gatk-4.1.6.0/gatk CreateSequenceDictionary -R E.coli_K12_MG1655.fa -O E.coli_K12_MG1655.dict && echo "** dict done **"
+
+Optional: Base Quality Score Recalibration (BQSR)
+Recalibrate systematic errors made by the sequencing machine when it estimates the accuracy of each base call.
+
+10.2 Variant calling using GATK HaplotypeCaller, generate gvcf file in case more samples will be added in the future
+time ~/Tools/gatk-4.1.6.0/gatk HaplotypeCaller \
+ -R ~/NGS/Ecoli/raw_data/reference_genome/E.coli_K12_MG1655.fa \
+ --emit-ref-confidence GVCF \
+ -I ~/NGS/Ecoli/result/BWA/E_coli_K12.sorted.markdup.bam \
+ -O ~/NGS/Ecoli/result/GATK/E_coli_K12.g.vcf && echo "** gvcf done **"
+
+10.3 Joint calling using GenotypeGVCFs
+time ~/Tools/gatk-4.1.6.0/gatk GenotypeGVCFs \
+ -R ~/NGS/Ecoli/raw_data/reference_genome/E.coli_K12_MG1655.fa \
+ -V ~/NGS/Ecoli/result/GATK/E_coli_K12.g.vcf \
+ -O ~/NGS/Ecoli/result/GATK/E_coli_K12.vcf && echo "** vcf done **"
+
+10.4 Compress and build index for the vcf file
+~/Tools/htslib-1.1.2/bin/bgzip -f ~/NGS/Ecoli/result/GATK/E_coli_K12.vcf
+~/Tools/htslib-1.1.2/bin/tabix -p vcf ~/NGS/Ecoli/result/GATK/E_coli_K12.vcf.gz
+
+11. Variants quality control
+Indel realignment (already done if using GATK HaplotypeCaller), 
+
+
