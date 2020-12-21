@@ -68,5 +68,39 @@ time ~/Tools/gatk-4.1.6.0/gatk GenotypeGVCFs \
 
 11. Variants quality control
 Indel realignment (already done if using GATK HaplotypeCaller), 
+We can use VQSR if there are some common variants sets.
+Otherwise, we can perform quality control by setting up threshold of some parameters.
 
-
+11.1 Select the SNP variants
+time ~/bioinfo_tools/gatk-4.1.9.0/gatk SelectVariants \
+    -select-type SNP \
+    -V ~/NGS/Ecoli/result/GATK/E_coli_K12.vcf.gz \
+    -O ~/NGS/Ecoli/result/GATK/E_coli_K12.snp.vcf.gz
+    
+11.2 Quanlity control for SNPs
+time ~/bioinfo_tools/gatk-4.1.9.0/gatk VariantFiltration \
+    -V ~/NGS/Ecoli/result/GATK/E_coli_K12.snp.vcf.gz \
+    --filter-expression "QD < 2.0 || MQ < 40.0 || FS > 60.0 || SOR > 3.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0" \
+    --filter-name "Filter" \
+    -O ~/NGS/Ecoli/result/GATK/E_coli_K12.snp.filter.vcf.gz
+    
+11.1 Select the Indels variants
+time ~/bioinfo_tools/gatk-4.1.9.0/gatk SelectVariants \
+    -select-type INDEL \
+    -V ~/NGS/Ecoli/result/GATK/E_coli_K12.vcf.gz \
+    -O ~/NGS/Ecoli/result/GATK/E_coli_K12.indel.vcf.gz
+    
+11.2 Quanlity control for Indels
+time ~/bioinfo_tools/gatk-4.1.9.0/gatk VariantFiltration \
+    -V ~/NGS/Ecoli/result/GATK/E_coli_K12.indel.vcf.gz \
+    --filter-expression "QD < 2.0 || FS > 200.0 || SOR > 10.0 || MQRankSum < -12.5 || ReadPosRankSum < -8.0" \
+    --filter-name "Filter" \
+    -O ~/NGS/Ecoli/result/GATK/E_coli_K12.indel.filter.vcf.gz
+    
+11.3 Merge the results for SNPs and Indels
+time ~/bioinfo_tools/gatk-4.1.9.0/gatk MergeVcfs \
+    -I ~/NGS/Ecoli/result/GATK/E_coli_K12.snp.filter.vcf.gz \
+    -I ~/NGS/Ecoli/result/GATK/E_coli_K12.indel.filter.vcf.gz \
+    -O ~/NGS/Ecoli/result/GATK/E_coli_K12.filter.vcf.gz
+    
+    
