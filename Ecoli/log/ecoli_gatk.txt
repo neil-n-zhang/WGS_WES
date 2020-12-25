@@ -103,4 +103,16 @@ time ~/bioinfo_tools/gatk-4.1.9.0/gatk MergeVcfs \
     -I ~/NGS/Ecoli/result/GATK/E_coli_K12.indel.filter.vcf.gz \
     -O ~/NGS/Ecoli/result/GATK/E_coli_K12.filter.vcf.gz
     
-    
+12. Annotate the variants using snpEff
+12.1 Preprocess the vcf file
+Unzip E_coli_K12.filter.vcf.gz
+The annotation file from snpEff uses chromosome name "Chromosome" rather than "NC_000913.3", replace the chromosome name in the vcf file.
+sed -i 's/NC_000913.3/Chromosome/g' E_coli_K12.filter.vcf
+
+12.2 Search for E.coli K12 annotation file in snpEff
+java -jar ~/bioinfo_tools/snpEff/snpEff.jar databases | grep -i Escherichia_coli_k_12
+
+12.3 Run snpEff using the vcf file
+java -jar ~/bioinfo_tools/snpEff/snpEff.jar Escherichia_coli_k_12 /home/neil/NGS/Ecoli/result/GATK/E_coli_K12.filter.vcf > E_coli_K12.snpEff.vcf
+ 
+
