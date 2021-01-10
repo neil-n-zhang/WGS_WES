@@ -1,0 +1,175 @@
+1. Download data in SRA format:
+prefetch --option-file SraAccList.txt
+
+2. Convert sra into FastQ:
+
+#!/bin/bash
+for i in $(ls *.sra)
+do
+    fastq-dump --split-files $i
+done
+
+3. Compress the fastq:
+
+for i in $(ls *.fastq)
+do
+	bgzip -f $i
+done
+
+
+4. Build index for the reference genome:
+~/bioinfo_tools/bwa-0.7.17/bwa index Mus_musculus.GRCm38.dna.primary_assembly.fa.gz
+
+5. Check FastQ quality using FastQC:
+fastqc /home/neil/WES/CLL_mice/raw_data/*.fastq.gz -o /home/neil/WES/CLL_mice/result/fastqc
+
+6. Map FastQ using bwa:
+#!/bin/bash
+REF=/home/neil/bioinfo_tools/Reference/Mus_musculus.GRCm38.dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz
+
+cat sample.txt | while read id
+do
+  echo "start bwa for ${id}" `date`
+  fq1=${id}_1.fastq.gz
+  fq2=${id}_2.fastq.gz
+  ~/bioinfo_tools/bwa-0.7.17/bwa mem -t 16 -R "@RG\tID:foo\tSM:${id}\tPL:Illumina" ${REF} ${fq1} ${fq2} | samtools sort -@ 16 -m 3G -o /home/neil/WES/CLL_mice/result/bwa/${id}.bam
+  echo "end bwa for ${id}" `date`
+done
+
+7. Generate exon-only GTF:
+cat /home/neil/bioinfo_tools/Reference/Mus_musculus.GRCm38.101.gtf | grep 'transcript_biotype "protein_coding"' | awk '($3=="exon")' > Mus_musculus.GRCm38.101.exon.gtf
+
+7. Or download CCDS bed files from UCSC Table Browser https://genome.ucsc.edu/cgi-bin/hgTables
+curl -o mouse38ccds.bed 'https://genome.ucsc.edu/cgi-bin/hgTables?hgsid=994056379_lB86pBL4tiRlwKP700MmP6sAnzGl&boolshad.hgta_printCustomTrackHeaders=0&hgta_ctName=tb_ccdsGene&hgta_ctDesc=table+browser+query+on+ccdsGene&hgta_ctVis=pack&hgta_ctUrl=&fbUpBases=200&fbExonBases=0&fbIntronBases=0&fbQual=cds&fbDownBases=200&hgta_doGetBed=get+BED'
+
+remove chr in the bed file:
+cat mouse38ccds.bed | awk '{gsub(/chr/,"")}1' >mouse38ccds_rmchr.bed
+
+
+8. Qualimap for bam quality control 
+#!/bin/bash
+
+cat sample.txt | while read id
+do
+  echo "start qualimap for ${id}" `date`
+
+  ~/bioinfo_tools/qualimap_v2.2.1/qualimap bamqc --java-mem-size=40G -gff /home/neil/bioinfo_tools/Reference/mouse38ccds_rmchr.bed -bam ${id}.bam -outdir /home/neil/WES/CLL_mice/result/qualimap/${id}
+  echo "end qualimap for ${id}" `date`
+done
+
+9. Remove duplicates in BAM files:
+#!/bin/bash
+
+cat sample.txt | while read id
+do
+  echo "start MarkDuplicates for ${id}"
+  /home/neil/bioinfo_tools/gatk-4.1.9.0/gatk --java-options "-Xmx20G" MarkDuplicates \
+  -I ${id}.bam --REMOVE_DUPLICATES true \
+  -O ${id}_marked.bam \
+  -M ${id}.metrics \
+  1>${id}_log.mark 2>&1
+  echo "end MarkDuplicates for ${id}" 'date'
+  samtools index -@24 -m 20G -b ${id}_marked.bam ${id}_marked.bai
+done
+
+10. Download the common genome variants for mice:
+SNP:
+wget ftp://ftp.ncbi.nih.gov/snp/organisms/archive/mouse_10090/VCF/00-All.vcf.gz \
+     -O mouse.dbsnp.vcf.gz
+Indels:
+wget ftp://ftp-mouse.sanger.ac.uk/REL-1505-SNPs_Indels/mgp.v5.merged.indels.dbSNP142.normed.vcf.gz \
+-O mgp.v5.indels.vcf.gz
+
+Filter for passing variants:
+# take header first
+zcat mouse.mgp.v5.indels.vcf.gz | head -1000 | grep "^#" | cut -f 1-8 \
+> mouse.mgp.v5.indels.pass.chr.vcf
+# keep only passing and append 
+zcat mouse.mgp.v5.indels.vcf.gz | grep -v "^#" | cut -f 1-8 \
+| grep "PASS"  >> mouse.mgp.v5.indels.pass.chr.vcf
+
+
+11. Build dictionary for the reference genome and the common variants:
+samtools faidx Mus_musculus.GRCm38.dna.primary_assembly.fa.gz
+/home/neil/bioinfo_tools/gatk-4.1.9.0/gatk CreateSequenceDictionary -R Mus_musculus.GRCm38.dna.primary_assembly.fa.gz
+/home/neil/bioinfo_tools/gatk-4.1.9.0/gatk IndexFeatureFile -I mouse.dbsnp.vcf.gz
+/home/neil/bioinfo_tools/gatk-4.1.9.0/gatk IndexFeatureFile -I mouse.mgp.v5.indels.vcf.gz 
+
+12. Base quality score recalibration BQSR:
+#!/bin/bash
+
+GATK=/home/neil/bioinfo_tools/gatk-4.1.9.0/gatk
+SNP=/home/neil/bioinfo_tools/Reference/mouse.dbsnp.vcf.gz
+INDEL=/home/neil/bioinfo_tools/Reference/mouse.mgp.v5.indels.vcf.gz
+REF=/home/neil/bioinfo_tools/Reference/Mus_musculus.GRCm38.dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz
+
+cat sample.txt | while read id
+do
+  echo "start BQSR for ${id}" `date`
+  $GATK --java-options "-Xmx20G" BaseRecalibrator \
+  -R $REF \
+  -I ${id}_marked.bam \
+  --known-sites ${SNP} \
+  --known-sites ${INDEL}\
+  -O ${id}_recal.table \
+  1>${id}_log.recal 2>&1
+  
+  $GATK --java-options "-Xmx20G" ApplyBQSR \
+  -R $REF \
+  -I ${id}_marked.bam \
+  -bqsr ${id}_recal.table \
+  -O ${id}_bqsr.bam \
+  1>${id}_log.ApplyBQSR 2>&1
+
+  echo "end BQSR for ${id}" `date`
+done
+
+13. Call somatic mutations using Mutect2 and filter through FilterMutectCalls:
+#!/bin/bash
+
+GATK=/home/neil/bioinfo_tools/gatk-4.1.9.0/gatk
+REF=/home/neil/bioinfo_tools/Reference/Mus_musculus.GRCm38.dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz
+CDS=/home/neil/bioinfo_tools/Reference/mouse38ccds_rmchr.bed
+
+cat sample_pair.txt | while read sample
+do  
+  sample=(${sample})
+  tumor=${sample[0]}
+  normal=${sample[1]}
+  echo "start Mutect for $tumor" `date`
+  $GATK --java-options "-Xmx40G" Mutect2 \
+     -R $REF \
+     -I $tumor'_bqsr.bam' \
+     -I $normal'_bqsr.bam' \
+     -L $CDS \
+     -normal $normal \
+     -O $tumor.vcf.gz 
+
+  $GATK  --java-options "-Xmx40G" FilterMutectCalls \
+   -R $REF \
+   -V $tumor.vcf.gz \
+   -O $tumor.filtered.vcf.gz
+       
+done
+
+14. Choose the pass variants:
+zcat D22CLL.filtered.vcf.gz | head -1000 | grep "^#" | cut -f 1-8 \
+> D22CLL.pass.vcf
+# keep only passing and append 
+zcat D22CLL.filtered.vcf.gz | grep -v "^#" | cut -f 1-8 \
+| grep "PASS"  >> D22CLL.pass.vcf
+
+zcat E31CLL.filtered.vcf.gz | head -1000 | grep "^#" | cut -f 1-8 \
+> E31CLL.pass.vcf
+# keep only passing and append 
+zcat E31CLL.filtered.vcf.gz | grep -v "^#" | cut -f 1-8 \
+| grep "PASS"  >> E31CLL.pass.vcf
+
+
+15. Annotate the variants using snpEff
+java -jar ~/bioinfo_tools/snpEff/snpEff.jar GRCm38.99 D22CLL.pass.vcf > D22CLL.snpEff.vcf
+
+16. Merge the vcf into maf using snpeffToMaf
+
+17. Visualize maf file using maftool in R
+
