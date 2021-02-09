@@ -156,14 +156,12 @@ done
 zcat D22CLL.filtered.vcf.gz | head -1000 | grep "^#" | cut -f 1-8 \
 > D22CLL.pass.vcf
 # keep only passing and append 
-zcat D22CLL.filtered.vcf.gz | grep -v "^#" | cut -f 1-8 \
-| grep "PASS"  >> D22CLL.pass.vcf
+zcat D22CLL.filtered.vcf.gz | grep -v "^#" | grep "PASS"  >> D22CLL.pass.vcf
 
 zcat E31CLL.filtered.vcf.gz | head -1000 | grep "^#" | cut -f 1-8 \
 > E31CLL.pass.vcf
 # keep only passing and append 
-zcat E31CLL.filtered.vcf.gz | grep -v "^#" | cut -f 1-8 \
-| grep "PASS"  >> E31CLL.pass.vcf
+zcat E31CLL.filtered.vcf.gz | grep -v "^#" | grep "PASS"  >> E31CLL.pass.vcf
 
 
 15. Annotate the variants using snpEff
