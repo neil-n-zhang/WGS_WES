@@ -165,9 +165,34 @@ zcat E31CLL.filtered.vcf.gz | grep -v "^#" | grep "PASS"  >> E31CLL.pass.vcf
 
 
 15. Annotate the variants using snpEff
-java -jar ~/bioinfo_tools/snpEff/snpEff.jar GRCm38.99 D22CLL.pass.vcf > D22CLL.snpEff.vcf
+java -jar ~/bioinfo_tools/snpEff/snpEff.jar GRCm38.99 D22CLL.pass.vcf -canon > D22CLL.snpEff.vcf
 
-16. Merge the vcf into maf using snpeffToMaf
+Alternative: 15. Annotate the variants through VEP
+Install VEP: 
+git clone https://github.com/Ensembl/ensembl-vep.git
+sudo apt install cpanminus
+cd ensembl-vep
+perl INSTALL.pl
 
-17. Visualize maf file using maftool in R
+Download database:
+cd $HOME/.vep
+curl -O ftp.ensembl.org/pub/release-101/variation/indexed_vep_cache/mus_musculus_vep_101_GRCm38.tar.gz
+tar xzf mus_musculus_vep_101_GRCm38.tar.gz
+
+/home/neil/bioinfo_tools/vep/vep --cache --cache_version 101 --offline --species mus_musculus -i D22CLL.pass.vcf -o D22CLL.pass.vep.vcf --vcf
+/home/neil/bioinfo_tools/vep/vep --cache --cache_version 101 --offline --species mus_musculus -i E31CLL.pass.vcf -o E31CLL.pass.vep.vcf --vcf
+
+--vcf: save the output into vcf format. Othersize, the output will be saved into txt as a table 
+
+16. Convert the vcf into maf using vcf2maf
+perl /home/neil/bioinfo_tools/Vcf2maf/vcf2maf.pl --vep-path /home/neil/bioinfo_tools/vep --ref-fasta /home/neil/bioinfo_tools/Reference/Mus_musculus.GRCm38.dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz --input-vcf D22CLL.pass.vep.vcf --output-maf D22CLL.maf --tumor-id D22CLL --normal-id D22 --species mus_musculus --cache-version 101 --ncbi-build GRCm38
+perl /home/neil/bioinfo_tools/Vcf2maf/vcf2maf.pl --vep-path /home/neil/bioinfo_tools/vep --ref-fasta /home/neil/bioinfo_tools/Reference/Mus_musculus.GRCm38.dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz --input-vcf E31CLL.pass.vep.vcf --output-maf E31CLL.maf --tumor-id E31CLL --normal-id E31 --species mus_musculus --cache-version 101 --ncbi-build GRCm38
+
+17. Merge MAFs from different samples
+cat D22CLL.maf | grep '^#' > head.maf
+cat D22CLL.maf | grep '^Hugo_Symbol' >> head.maf 
+cat *maf | grep -v '^#' | grep -v '^Hugo_Symbol' > main.maf
+cat head.maf main.maf > CLL_sum.maf
+
+18. Visualize maf file using maftools in R
 
